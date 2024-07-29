@@ -25,17 +25,17 @@ find_package(catkin REQUIRED COMPONENTS
   visualization_msgs
 )
 
-# Casadi
-set(CASADI_DIR "${CMAKE_SOURCE_DIR}/../depends/casadi")
-include_directories(
-  ${CASADI_DIR}/include
-)
-link_directories(
-  ${CASADI_DIR}/lib
-)
+# # Casadi
+# set(CASADI_DIR "${CMAKE_SOURCE_DIR}/../depends/casadi")
+# include_directories(
+#   ${CASADI_DIR}/include
+# )
+# link_directories(
+#   ${CASADI_DIR}/lib
+# )
 
 
-find_package(pinocchio REQUIRED)
+# find_package(pinocchio REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Franka 0.9.0 QUIET)
 if(NOT Franka_FOUND)
@@ -107,12 +107,12 @@ add_dependencies(franka_example_controllers
   ${PROJECT_NAME}_gencfg
 )
 
-target_link_libraries(${PROJECT_NAME} PUBLIC pinocchio::pinocchio)
+# target_link_libraries(${PROJECT_NAME} PUBLIC pinocchio::pinocchio)
 
 target_link_libraries(franka_example_controllers PUBLIC
   ${Franka_LIBRARIES}
   ${catkin_LIBRARIES}
-  casadi
+  # casadi
 )
 
 target_include_directories(franka_example_controllers SYSTEM PUBLIC
