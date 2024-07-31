@@ -196,6 +196,7 @@ catkin_install_python(
   scripts/cbf_system.py
   scripts/panda_cbf.py
   scripts/variable_stiffness_solver.py
+  scripts/desired_torques.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

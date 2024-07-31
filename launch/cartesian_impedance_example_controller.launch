@@ -2,6 +2,9 @@
 <launch>
   <arg name="robot" default="panda" doc="choose your robot. Possible values: [panda, fr3]"/>
   <arg name="arm_id" default="$(arg robot)" />
+  <!-- new torques -->
+  <arg name="torque_file_path" default="$(find franka_example_controllers)/results/tau_nom_orig.csv" doc="Path to the torque CSV file"/>
+
   <include file="$(find franka_control)/launch/franka_control.launch" pass_all_args="true"/>
   <rosparam command="load" file="$(find franka_example_controllers)/config/franka_example_controllers.yaml" subst_value="true" />
   <node name="controller_spawner" pkg="controller_manager" type="spawner" respawn="false" output="screen" args="cartesian_impedance_example_controller"/>

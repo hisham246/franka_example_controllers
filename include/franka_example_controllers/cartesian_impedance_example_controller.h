@@ -7,6 +7,9 @@
 #include <string>
 #include <vector>
 
+#include <fstream>
+#include <sstream>
+
 #include <controller_interface/multi_interface_controller.h>
 #include <dynamic_reconfigure/server.h>
 #include <geometry_msgs/PoseStamped.h>
@@ -34,6 +37,10 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   void update(const ros::Time&, const ros::Duration& period) override;
 
  private:
+  std::vector<Eigen::VectorXd> tau_d_from_file_;
+  size_t tau_index_;
+  bool readTorquesFromFile(const std::string& file_path);
+
   // Saturation
   Eigen::Matrix<double, 7, 1> saturateTorqueRate(
       const Eigen::Matrix<double, 7, 1>& tau_d_calculated,
@@ -112,6 +119,8 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
 
   void publishJacobian(const Eigen::Matrix<double, 6, 7>& jacobian);
   void publishError(const Eigen::Matrix<double, 6, 1>& error);
+
+
 
   // void solveQPExample();
 

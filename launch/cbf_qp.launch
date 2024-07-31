@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Launch the QP solver node -->
+  <node pkg="franka_example_controllers" type="panda_cbf.py" name="panda_cbf_qp" output="screen">
+  </node>
+
+  <!-- Launch the tau_d recorder node -->
+  <!-- <node pkg="franka_example_controllers" type="desired_torques.py" name="desired_torques" output="screen">
+  </node> -->
+</launch>

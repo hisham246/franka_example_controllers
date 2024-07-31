@@ -17,6 +17,21 @@ namespace franka_example_controllers {
 
 bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robot_hw,
                                                ros::NodeHandle& node_handle) {
+
+  // Add path to the torque file
+  std::string torque_file_path;
+  if (!node_handle.getParam("torque_file_path", torque_file_path)) {
+    ROS_ERROR_STREAM("CartesianImpedanceExampleController: Could not read parameter torque_file_path");
+    return false;
+  }
+
+  if (!readTorquesFromFile(torque_file_path)) {
+    ROS_ERROR_STREAM("CartesianImpedanceExampleController: Failed to read torques from file");
+    return false;
+  }
+
+  tau_index_ = 0; // Initialize the index to the first set of torques
+
   std::vector<double> cartesian_stiffness_vector;
   std::vector<double> cartesian_damping_vector;
 
@@ -221,6 +236,15 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
   // Desired torque
   tau_d << tau_task + tau_nullspace + coriolis;
 
+  // // Use the torques from the file instead of the computed ones
+  // if (tau_index_ < tau_d_from_file_.size()) {
+  //   tau_d = tau_d_from_file_[tau_index_];
+  //   tau_index_++;
+  // } else {
+  //   ROS_WARN_THROTTLE(1, "CartesianImpedanceExampleController: Ran out of torques in the file, holding last value.");
+  // }
+
+
   // Saturate torque rate to avoid discontinuities
   tau_d << saturateTorqueRate(tau_d, tau_J_d);
 
@@ -424,6 +448,32 @@ void CartesianImpedanceExampleController::publishError(const Eigen::Matrix<doubl
     }
     error_pub_.publish(msg);
 }
+
+bool CartesianImpedanceExampleController::readTorquesFromFile(const std::string& file_path) {
+  std::ifstream file(file_path);
+  if (!file.is_open()) {
+    ROS_ERROR_STREAM("CartesianImpedanceExampleController: Could not open file " << file_path);
+    return false;
+  }
+
+  std::string line;
+  while (std::getline(file, line)) {
+    std::istringstream ss(line);
+    std::string token;
+    Eigen::VectorXd torques(7);
+    for (int i = 0; i < 7; ++i) {
+      if (!std::getline(ss, token, ',')) {
+        ROS_ERROR_STREAM("CartesianImpedanceExampleController: Error reading line " << line);
+        return false;
+      }
+      torques[i] = std::stod(token);
+    }
+    tau_d_from_file_.push_back(torques);
+  }
+  file.close();
+  return true;
+}
+
 
 
 // void CartesianImpedanceExampleController::solveQPExample() {

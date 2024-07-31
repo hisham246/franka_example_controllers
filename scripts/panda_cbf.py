@@ -22,8 +22,8 @@ class PandaDynamicsModel:
         self.gravity_vector = np.zeros(7)
 
         self.inertia_matrix_sub = rospy.Subscriber('cartesian_impedance_example_controller/inertia_matrix', Float64MultiArray, self.inertia_matrix_callback)
-        self.coriolis_sub = rospy.Subscriber('cartesian_impedance_example_controller/coriolis', self.coriolis_callback)
-        self.gravity_vector_sub = rospy.Subscriber('cartesian_impedance_example_controller/gravity', self.gravity_callback)
+        self.coriolis_sub = rospy.Subscriber('cartesian_impedance_example_controller/coriolis', Float64MultiArray, self.coriolis_callback)
+        self.gravity_vector_sub = rospy.Subscriber('cartesian_impedance_example_controller/gravity', Float64MultiArray, self.gravity_callback)
 
     def inertia_matrix_callback(self, msg):
         self.inertia_matrix = np.array(msg.data).reshape((7, 7))
@@ -48,10 +48,15 @@ class PandaJointStates:
 class DesiredTorques:
     def __init__(self):
         self.tau_d = np.zeros(7)
+        self.tau_d_lists = [[] for _ in range(7)]  # Create a list of lists for each joint
+        self.finalized = False  # Flag to indicate if the lists have been finalized
         self.tau_d_sub = rospy.Subscriber('cartesian_impedance_example_controller/tau_d', Float64MultiArray, self.tau_d_callback)
 
     def tau_d_callback(self, msg):
         self.tau_d = np.array(msg.data)
+        for i in range(7):
+            self.tau_d_lists[i].append(self.tau_d[i])
+
     
 class CbfQp:
     def __init__(self, cbf_system):
@@ -60,10 +65,7 @@ class CbfQp:
         self.cbf_system = cbf_system
 
         self.weight_input = np.eye(self.udim) * 0.3
-        self.weight_slack = 1e-3
         self.H = None
-        self.slack_H = None
-
         self.A = None
         self.b = None
 
@@ -109,7 +111,7 @@ class CbfQp:
     
 def shutdown_callback():
     rospy.loginfo("Shutting down and saving data to CSV files...")
-    
+
     # Convert lists to DataFrames
     u_ref_df = pd.DataFrame(u_ref_list, columns=[f'Joint {i+1}' for i in range(7)])
     u_df = pd.DataFrame(u_list, columns=[f'Joint {i+1}' for i in range(7)])
@@ -123,7 +125,22 @@ def shutdown_callback():
     u_ref_df.to_csv('src/franka_ros/franka_example_controllers/results/tau_nom.csv', index=False)
     u_df.to_csv('src/franka_ros/franka_example_controllers/results/tau_optim.csv', index=False)
 
-    rospy.signal_shutdown("Time limit reached")
+    # Find the length of the shortest list
+    min_length = min([len(lst) for lst in desired_torques.tau_d_lists])
+
+    # Trim all lists to the same length
+    for i in range(7):
+        desired_torques.tau_d_lists[i] = desired_torques.tau_d_lists[i][:min_length]
+        print(len(desired_torques.tau_d_lists[i]))
+
+    # Convert lists to DataFrame
+    tau_d_df = pd.DataFrame({
+        f'Joint {i+1}': desired_torques.tau_d_lists[i][:min_length]
+        for i in range(7)
+    })
+
+    # Save DataFrame to CSV file
+    tau_d_df.to_csv('src/franka_ros/franka_example_controllers/results/tau_nom_orig.csv', index=False)
 
 
 if __name__ == '__main__':
@@ -148,7 +165,9 @@ if __name__ == '__main__':
 
     rate = rospy.Rate(1000)
     
-    rospy.Timer(rospy.Duration(30), shutdown_callback, oneshot=True)
+    # rospy.Timer(rospy.Duration(30), shutdown_callback, oneshot=True)
+
+    rospy.on_shutdown(shutdown_callback)
 
     cumulative_solve_time = 0.0
 
@@ -168,7 +187,7 @@ if __name__ == '__main__':
         qp_solver = CbfQp(cbf_system)
 
         start_time = rospy.Time.now()
-        u, slack, h, feas = qp_solver.cbf_qp(u_ref)
+        u, h, feas = qp_solver.cbf_qp(u_ref)
         solve_time = rospy.Time.now() - start_time
         cumulative_solve_time += solve_time.to_sec()
 
