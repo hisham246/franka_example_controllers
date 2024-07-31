@@ -1,108 +1,108 @@
-import numpy as np
-import cvxpy as cp
+# class CbfQp:
+#     def __init__(self, cbf_system):
+#         self.udim = 7  # Number of control inputs for Panda robot
 
-class CbfQp:
-    """
-    This is the implementation of the CBF-QP method. The optimization problem is:
+#         self.cbf_system = cbf_system
 
-            min (u-u_ref).T * H * (u-u_ref) + p * delta**2
-            s.t. L_f B(x) + L_g B(x) * u + gamma * B(x) >= 0  ---> CBF constraint
+#         self.weight_input = np.eye(self.udim) * 0.3
+#         self.weight_slack = 1e-3
 
-    Input:
-    :param  system  :   The dynamic system of interest, containing CBF and their Lie derivatives
-    :param  x       :   The current state x
-    :param  u_ref   :   The reference control input
-    :param  slack   :   The slack activated or not, 1 -> activate while 0 -> not activate
-    :param  verbose :   Show the optimization log or not
-    """
-    def __init__(self, system, cbf_gamma=5.0, weight_input=None, weight_slack=0.01, u_max=None, u_min=None):
-        self.system = system
-        self.udim = system.udim
+#         self.cbf_gamma = 20.0
 
-        self.cbf = system.cbf
-        self.lf_cbf = system.lf_cbf
-        self.lg_cbf = system.lg_cbf
+#         self.u_max = np.array([87, 87, 87, 87, 12, 12, 12]) # From the Franka Robotics website
 
-        self.cbf_gamma = cbf_gamma
-        self.weight_input = np.eye(self.udim) if weight_input is None else weight_input
-        self.weight_slack = weight_slack
-        self.u_max = np.ones(self.udim) * np.inf if u_max is None else u_max
-        self.u_min = np.ones(self.udim) * -np.inf if u_min is None else u_min
+#     def cbf_qp(self, u_ref, with_slack=1):
+#         if u_ref is None:
+#             u_ref = np.zeros(self.udim)
+#         else:
+#             if u_ref.shape != (self.udim,):
+#                 raise ValueError(f'u_ref should have the shape size (u_dim,), now it is {u_ref.shape}')
 
-        self.H = None
-        self.slack_H = None
-        self.A = None
-        self.b = None
-        self.with_slack = None
+#         H = self.weight_input
+#         f = -H @ u_ref
 
-    def cbf_qp(self, x, u_ref=None, with_slack=1, verbose=0):
-        inf = np.inf
-        self.with_slack = with_slack
+#         h_prime = self.cbf_system.h_prime_x()
+#         lf_h_prime = self.cbf_system.dh_prime_dx() @ self.cbf_system.f_x()
+#         lg_h_prime = self.cbf_system.dh_prime_dx() @ self.cbf_system.g_x()
 
-        slack = None
-        if u_ref is None:
-            u_ref = np.zeros(self.udim)
-        else:
-            if u_ref.shape != (self.udim,):
-                raise ValueError(f'u_ref should have the shape size (u_dim,), now it is {u_ref.shape}')
+#         A = -lg_h_prime
+#         b = lf_h_prime + self.cbf_gamma * h_prime
 
-        # Read the weight input and build up the matrix H in the cost function
-        if self.weight_input.shape == (1, 1):
-            self.H = self.weight_input * np.eye(self.udim)
-        elif self.weight_input.shape == (self.udim, 1):
-            self.H = np.diag(self.weight_input)
-        elif self.weight_input.shape == (self.udim, self.udim):
-            self.H = np.copy(self.weight_input)
-        else:
-            self.H = np.eye(self.udim)
+#         lb = -self.u_max
+#         ub = self.u_max
 
-        h = self.cbf(x)
-        lf_B = self.lf_cbf(x)
-        lg_B = self.lg_cbf(x)
+#         # Convert matrices to sparse format for better performance
+#         H = csc_matrix(H)
+#         A = csc_matrix(A)
 
-        if self.with_slack:
-            lg_B = np.hstack([lg_B, np.zeros((lg_B.shape[0], 1))])
-            self.A = lg_B
-            self.b = lf_B + self.cbf_gamma * h
-            self.b = np.atleast_2d(self.b)[0]
+#         if with_slack:
+#             H_slack = np.hstack((H.toarray(), np.zeros((H.shape[0], 1))))
+#             H_slack = np.vstack((H_slack, np.hstack((np.zeros((1, H.shape[0])), self.weight_slack * np.ones((1, 1))))))
 
-            u_min = np.hstack([self.u_min, -inf * np.ones(1)])
-            u_max = np.hstack([self.u_max, inf * np.ones(1)])
+#             f_slack = np.hstack((f, 0))
 
-            u = cp.Variable(self.udim + 1)
-            self.slack_H = np.hstack([self.H, np.zeros((self.H.shape[0], 1))])
-            self.slack_H = np.vstack([self.slack_H, np.hstack([np.zeros((1, self.H.shape[1])), self.weight_slack])])
+#             A_slack = np.hstack((A.toarray(), np.zeros((A.shape[0], 1))))
+#             lb_slack = np.hstack((lb, -np.inf))
+#             ub_slack = np.hstack((ub, np.inf))
 
-            u_ref = np.hstack([u_ref, np.zeros(1)])
-            objective = cp.Minimize(0.5 * cp.quad_form(u, self.slack_H) - u_ref.T @ self.slack_H @ u)
+#             # Ensure all matrices are in sparse format for qpsolvers
+#             H_slack = csc_matrix(H_slack)
+#             A_slack = csc_matrix(A_slack)
 
-            # Constraints: A * u <= b and u_min, u_max
-            constraints = [u_min <= u, u <= u_max, self.A @ u <= self.b]
+#             u_slack = qp.solve_qp(P=H_slack, q=f_slack, G=A_slack, h=b, A=None, b=None, lb=lb_slack, ub=ub_slack, solver='clarabel', max_iter=10)
 
-            problem = cp.Problem(objective, constraints)
-            problem.solve()
+#             if u_slack is not None:
+#                 u = u_slack[:self.udim]
+#                 slack = u_slack[-1]
+#                 feas = 1
+#             else:
+#                 u = None
+#                 slack = None
+#                 feas = -1
+#         else:
+#             u = qp.solve_qp(P=H, q=f, G=A, h=b, A=None, b=None, lb=lb, ub=ub, solver='clarabel', max_iter=10)
 
-            if problem.status != cp.OPTIMAL:
-                raise ValueError("QP problem is not feasible")
+#             if u is not None:
+#                 slack = None
+#                 feas = 1
+#             else:
+#                 u = None
+#                 slack = None
+#                 feas = -1
 
-            u_opt = u.value[:-1]
-            slack_opt = u.value[-1]
-        else:
-            self.A = lg_B
-            self.b = lf_B + self.cbf_gamma * h
-            self.b = np.atleast_2d(self.b)[0]
+#         return u, slack, h_prime, feas
 
-            u = cp.Variable(self.udim)
-            objective = cp.Minimize(0.5 * cp.quad_form(u, self.H) - u_ref.T @ self.H @ u)
-            constraints = [self.u_min <= u, u <= self.u_max, self.A @ u <= self.b]
+        # if with_slack:
+        #     lg_h_prime = np.hstack((lg_h_prime, np.zeros((lg_h_prime.shape[0], 1))))
 
-            problem = cp.Problem(objective, constraints)
-            problem.solve()
+        #     self.A = lg_h_prime
+        #     self.b = lf_h_prime + self.cbf_gamma * h_prime
 
-            if problem.status != cp.OPTIMAL:
-                raise ValueError("QP problem is not feasible")
+        #     self.b = np.atleast_2d(self.b)[0]
 
-            u_opt = u.value
-            slack_opt = None
+        #     u_max = np.hstack((self.u_max, inf * np.ones(1)))
 
-        return u_opt, slack_opt, h
+        #     u = cp.Variable(self.udim + 1)
+
+        #     self.slack_H = np.hstack((self.H, np.zeros((self.H.shape[0], 1))))
+        #     self.slack_H = np.vstack((self.slack_H, np.hstack((np.zeros((1, self.H.shape[0])), self.weight_slack * np.ones((1, 1))))))
+
+        #     u_ref = np.hstack((u_ref, np.zeros(1)))
+        #     objective = cp.Minimize((1/2) * cp.quad_form(u, self.slack_H) - (self.slack_H @ u_ref).T @ u)
+
+        #     constraints = [u <= u_max, self.A @ u <= self.b]
+
+        #     problem = cp.Problem(objective, constraints)
+
+        #     problem.solve(max_iter=10000)
+
+        #     if problem.status != 'infeasible':
+        #         slack = u.value[-1]
+        #         u = u.value[:self.udim]
+        #         feas = 1
+        #     else:
+        #         u = None
+        #         slack = None
+        #         feas = -1
+
+        # else:

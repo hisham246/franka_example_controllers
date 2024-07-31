@@ -41,32 +41,21 @@ x = q + dq
 # Differentiate the result_simplified with respect to the robot states
 dh_dx = sp.Matrix([sp.diff(h, var) for var in x]).T
 
-print(dh_dx)
+f_x = dq + [0 for _ in range(7)]
 
-# f_x = dq + [0 for _ in range(7)]
+L_f_x = dh_dx @ sp.Matrix(f_x)
 
-# L_f_x = dh_dx @ sp.Matrix(f_x)
+alpha = sp.symbols("alpha")
 
-# alpha = sp.symbols("alpha")
+h_prime = L_f_x + alpha * h
 
-# h_prime = L_f_x + alpha * h
+dh_prime_dx = sp.Matrix([sp.diff(L_f_x, var) for var in x]).T + alpha*dh_dx
 
-# dh_prime_dx = sp.Matrix([sp.diff(L_f_x, var) for var in x]).T + alpha*dh_dx
+vars = [h, dh_dx, h_prime, dh_prime_dx]
 
-# # Convert ddh to a string to write it to a file
-# h_str = str(h)
-# dh_dx_str = str(dh_dx)
-# h_prime_str = str(h_prime)
-# dh_prime_dx_str = str(dh_prime_dx)
+def export_result(var):
+    with open(f'constraints/{var}.txt', 'w') as file:
+        file.write(str(var))
 
-
-# # Export ddh value to an external text file
-# with open('constraints/h.txt', 'w') as file:
-#     file.write(h_str)
-# with open('constraints/dh_dx.txt', 'w') as file:
-#     file.write(dh_dx_str)
-# with open('constraints/h_prime.txt', 'w') as file:
-#     file.write(h_prime_str)
-# with open('constraints/dh_prime_dx.txt', 'w') as file:
-#     file.write(dh_prime_dx_str)
-
+for var in vars:
+    export_result(var)
