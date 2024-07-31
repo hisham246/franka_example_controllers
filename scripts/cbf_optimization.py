@@ -1,3 +1,42 @@
+# from scipy.sparse import csc_matrix
+
+
+        # if with_slack:
+        #     lg_h_prime = np.hstack((lg_h_prime, np.zeros((lg_h_prime.shape[0], 1))))
+
+        #     self.A = lg_h_prime
+        #     self.b = lf_h_prime + self.cbf_gamma * h_prime
+
+        #     self.b = np.atleast_2d(self.b)[0]
+
+        #     u_max = np.hstack((self.u_max, inf * np.ones(1)))
+
+        #     u = cp.Variable(self.udim + 1)
+
+        #     self.slack_H = np.hstack((self.H, np.zeros((self.H.shape[0], 1))))
+        #     self.slack_H = np.vstack((self.slack_H, np.hstack((np.zeros((1, self.H.shape[0])), self.weight_slack * np.ones((1, 1))))))
+
+        #     u_ref = np.hstack((u_ref, np.zeros(1)))
+        #     objective = cp.Minimize((1/2) * cp.quad_form(u, self.slack_H) - (self.slack_H @ u_ref).T @ u)
+
+        #     constraints = [u <= u_max, self.A @ u <= self.b]
+
+        #     problem = cp.Problem(objective, constraints)
+
+        #     problem.solve(max_iter=10000)
+
+        #     if problem.status != 'infeasible':
+        #         slack = u.value[-1]
+        #         u = u.value[:self.udim]
+        #         feas = 1
+        #     else:
+        #         u = None
+        #         slack = None
+        #         feas = -1
+
+        # else:
+
+
 # class CbfQp:
 #     def __init__(self, cbf_system):
 #         self.udim = 7  # Number of control inputs for Panda robot
@@ -71,38 +110,3 @@
 #                 feas = -1
 
 #         return u, slack, h_prime, feas
-
-        # if with_slack:
-        #     lg_h_prime = np.hstack((lg_h_prime, np.zeros((lg_h_prime.shape[0], 1))))
-
-        #     self.A = lg_h_prime
-        #     self.b = lf_h_prime + self.cbf_gamma * h_prime
-
-        #     self.b = np.atleast_2d(self.b)[0]
-
-        #     u_max = np.hstack((self.u_max, inf * np.ones(1)))
-
-        #     u = cp.Variable(self.udim + 1)
-
-        #     self.slack_H = np.hstack((self.H, np.zeros((self.H.shape[0], 1))))
-        #     self.slack_H = np.vstack((self.slack_H, np.hstack((np.zeros((1, self.H.shape[0])), self.weight_slack * np.ones((1, 1))))))
-
-        #     u_ref = np.hstack((u_ref, np.zeros(1)))
-        #     objective = cp.Minimize((1/2) * cp.quad_form(u, self.slack_H) - (self.slack_H @ u_ref).T @ u)
-
-        #     constraints = [u <= u_max, self.A @ u <= self.b]
-
-        #     problem = cp.Problem(objective, constraints)
-
-        #     problem.solve(max_iter=10000)
-
-        #     if problem.status != 'infeasible':
-        #         slack = u.value[-1]
-        #         u = u.value[:self.udim]
-        #         feas = 1
-        #     else:
-        #         u = None
-        #         slack = None
-        #         feas = -1
-
-        # else:

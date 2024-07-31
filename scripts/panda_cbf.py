@@ -9,8 +9,6 @@ import sys
 import os
 import csv
 import pandas as pd
-import qpsolvers as qp
-from scipy.sparse import csc_matrix
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
@@ -24,8 +22,8 @@ class PandaDynamicsModel:
         self.gravity_vector = np.zeros(7)
 
         self.inertia_matrix_sub = rospy.Subscriber('cartesian_impedance_example_controller/inertia_matrix', Float64MultiArray, self.inertia_matrix_callback)
-        self.coriolis_sub = rospy.Subscriber('cartesian_impedance_example_controller/coriolis', Float64MultiArray, self.coriolis_callback)
-        self.gravity_vector_sub = rospy.Subscriber('cartesian_impedance_example_controller/gravity', Float64MultiArray, self.gravity_callback)
+        self.coriolis_sub = rospy.Subscriber('cartesian_impedance_example_controller/coriolis', self.coriolis_callback)
+        self.gravity_vector_sub = rospy.Subscriber('cartesian_impedance_example_controller/gravity', self.gravity_callback)
 
     def inertia_matrix_callback(self, msg):
         self.inertia_matrix = np.array(msg.data).reshape((7, 7))
@@ -54,8 +52,7 @@ class DesiredTorques:
 
     def tau_d_callback(self, msg):
         self.tau_d = np.array(msg.data)
-
-
+    
 class CbfQp:
     def __init__(self, cbf_system):
         self.udim = 7  # Number of control inputs for Panda robot
@@ -75,8 +72,6 @@ class CbfQp:
         self.u_max = np.array([87, 87, 87, 87, 12, 12, 12]) # From the Franka Robotics website
 
     def cbf_qp(self, u_ref):
-        inf = np.inf
-        slack = None
         if u_ref is None:
             u_ref = np.zeros(self.udim)
         else:
@@ -110,14 +105,19 @@ class CbfQp:
             u = None
             feas = -1
 
-        return u, slack, h_prime, feas
+        return u, h_prime, feas
     
-def shutdown_callback(event):
+def shutdown_callback():
     rospy.loginfo("Shutting down and saving data to CSV files...")
     
     # Convert lists to DataFrames
     u_ref_df = pd.DataFrame(u_ref_list, columns=[f'Joint {i+1}' for i in range(7)])
     u_df = pd.DataFrame(u_list, columns=[f'Joint {i+1}' for i in range(7)])
+    solve_time_df = pd.DataFrame(solve_time_list, columns=['Solve Time'])
+
+    # Combine solve_time_df with u_ref_df and u_df
+    u_ref_df = pd.concat([solve_time_df, u_ref_df], axis=1)
+    u_df = pd.concat([solve_time_df, u_df], axis=1)
 
     # Save DataFrames to CSV files
     u_ref_df.to_csv('src/franka_ros/franka_example_controllers/results/tau_nom.csv', index=False)
@@ -138,6 +138,7 @@ if __name__ == '__main__':
 
     u_ref_list = []
     u_list = []
+    solve_time_list = []
 
     def save_to_csv(filename, data):
         with open(filename, 'w', newline='') as csvfile:
@@ -148,6 +149,8 @@ if __name__ == '__main__':
     rate = rospy.Rate(1000)
     
     rospy.Timer(rospy.Duration(30), shutdown_callback, oneshot=True)
+
+    cumulative_solve_time = 0.0
 
     while not rospy.is_shutdown():
 
@@ -167,6 +170,7 @@ if __name__ == '__main__':
         start_time = rospy.Time.now()
         u, slack, h, feas = qp_solver.cbf_qp(u_ref)
         solve_time = rospy.Time.now() - start_time
+        cumulative_solve_time += solve_time.to_sec()
 
         rospy.loginfo("Nominal Control Input: %s", u_ref)
         rospy.loginfo("Optimal Control Input: %s", u)
@@ -176,11 +180,11 @@ if __name__ == '__main__':
         if u is not None:
             u_ref_list.append(u_ref.tolist())
             u_list.append(u.tolist())
+            solve_time_list.append(cumulative_solve_time)
 
         control_input_msg = Float64MultiArray()
         control_input_msg.data = u
 
         control_input_pub.publish(control_input_msg)
-
 
         rate.sleep()
