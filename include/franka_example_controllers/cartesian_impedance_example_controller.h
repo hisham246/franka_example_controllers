@@ -20,6 +20,7 @@
 #include <franka_hw/franka_model_interface.h>
 #include <franka_hw/franka_state_interface.h>
 #include <std_msgs/Float64MultiArray.h>
+// #include <qpOASES.hpp>
 
 namespace franka_example_controllers {
 
@@ -68,6 +69,8 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   ros::Subscriber sub_equilibrium_pose_;
   void equilibriumPoseCallback(const geometry_msgs::PoseStampedConstPtr& msg);
 
+  std::vector<Eigen::VectorXd> desired_torques_;
+
   // Optimized input subscriber
   // ros::Subscriber sub_optimized_input_;
   // void optimizedInputCallback(const std_msgs::Float64MultiArrayConstPtr& msg);
@@ -109,6 +112,9 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
 
   void publishJacobian(const Eigen::Matrix<double, 6, 7>& jacobian);
   void publishError(const Eigen::Matrix<double, 6, 1>& error);
+
+  // void solveQPExample();
+
 };
 
 }  // namespace franka_example_controllers

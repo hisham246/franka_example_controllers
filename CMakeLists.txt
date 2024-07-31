@@ -34,6 +34,13 @@ link_directories(
   ${CASADI_DIR}/lib
 )
 
+# qpOASES
+# set(QPOASES_DIR "${CMAKE_SOURCE_DIR}/../depends/qpOASES-releases-3.2.1")
+# include_directories(${QPOASES_DIR}/include)
+# link_directories(${QPOASES_DIR}/lib)
+
+include_directories(/usr/local/include/qpOASES)
+link_directories(/usr/local/lib)
 
 find_package(pinocchio REQUIRED)
 find_package(Eigen3 REQUIRED)
@@ -113,6 +120,7 @@ target_link_libraries(franka_example_controllers PUBLIC
   ${Franka_LIBRARIES}
   ${catkin_LIBRARIES}
   casadi
+  qpOASES
 )
 
 target_include_directories(franka_example_controllers SYSTEM PUBLIC

@@ -9,9 +9,9 @@
 #include <franka/robot_state.h>
 #include <pluginlib/class_list_macros.h>
 #include <ros/ros.h>
-
 #include <franka_example_controllers/pseudo_inversion.h>
 #include <std_msgs/Float64MultiArray.h>
+// #include <qpOASES.hpp>
 
 namespace franka_example_controllers {
 
@@ -122,7 +122,6 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
   //     "control_input", 10, &CartesianImpedanceExampleController::optimizedInputCallback, this,
   //     ros::TransportHints().reliable().tcpNoDelay());
 
-
   jacobian_pub_ = node_handle.advertise<std_msgs::Float64MultiArray>("jacobian", 10);
   error_pub_ = node_handle.advertise<std_msgs::Float64MultiArray>("error", 10);
 
@@ -151,7 +150,10 @@ void CartesianImpedanceExampleController::starting(const ros::Time& /*time*/) {
 }
 
 void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
-                                                 const ros::Duration& /*period*/) {
+                                                 const ros::Duration& /*period*/) { 
+
+  // solveQPExample();
+
   // get state variables
   franka::RobotState robot_state = state_handle_->getRobotState();
   std::array<double, 7> coriolis_array = model_handle_->getCoriolis();
@@ -218,6 +220,7 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
                         (2.0 * sqrt(nullspace_stiffness_)) * dq);
   // Desired torque
   tau_d << tau_task + tau_nullspace + coriolis;
+
   // Saturate torque rate to avoid discontinuities
   tau_d << saturateTorqueRate(tau_d, tau_J_d);
 
@@ -421,6 +424,38 @@ void CartesianImpedanceExampleController::publishError(const Eigen::Matrix<doubl
     }
     error_pub_.publish(msg);
 }
+
+
+// void CartesianImpedanceExampleController::solveQPExample() {
+//   using namespace qpOASES;
+
+//   /* Setup data of first QP. */
+//   real_t H[2 * 2] = {1.0, 0.0, 0.0, 0.5};
+//   real_t g[2] = {1.5, 1.0};
+//   real_t A[1 * 2] = {1.0, 1.0};
+//   real_t lb[2] = {0.5, -2.0};
+//   real_t ub[2] = {5.0, 2.0};
+//   real_t lbA[1] = {-1.0};
+//   real_t ubA[1] = {2.0};
+
+//   /* Setting up QProblem object. */
+//   QProblem example(2, 1);
+
+//   Options options;
+//   example.setOptions(options);
+
+//   /* Solve first QP. */
+//   int_t nWSR = 10;
+//   example.init(H, g, A, lb, ub, lbA, ubA, nWSR);
+
+//   /* Get and print solution of first QP. */
+//   real_t xOpt[2];
+//   real_t yOpt[2 + 1];
+//   example.getPrimalSolution(xOpt);
+//   example.getDualSolution(yOpt);
+
+//   ROS_INFO_STREAM("QP Solution: xOpt[0] = " << xOpt[0] << ", xOpt[1] = " << xOpt[1]);
+// }
 
 
 }  // namespace franka_example_controllers
