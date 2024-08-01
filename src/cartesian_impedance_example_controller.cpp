@@ -1,7 +1,6 @@
 // Copyright (c) 2023 Franka Robotics GmbH
 // Use of this source code is governed by the Apache-2.0 license, see LICENSE
 #include <franka_example_controllers/cartesian_impedance_example_controller.h>
-
 #include <cmath>
 #include <memory>
 
@@ -13,24 +12,24 @@
 #include <std_msgs/Float64MultiArray.h>
 // #include <qpOASES.hpp>
 
+#include <ros/package.h> // Include for ros::package::getPath
+#include <fstream>
+
+
 namespace franka_example_controllers {
 
 bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robot_hw,
                                                ros::NodeHandle& node_handle) {
 
-  // Add path to the torque file
-  std::string torque_file_path;
-  if (!node_handle.getParam("torque_file_path", torque_file_path)) {
-    ROS_ERROR_STREAM("CartesianImpedanceExampleController: Could not read parameter torque_file_path");
-    return false;
-  }
+  // Get the path to the package
+  std::string package_path = ros::package::getPath("franka_example_controllers");
 
+  // Add path to the torque file
+  std::string torque_file_path = package_path + "/results/tau_nominal_original.csv";
   if (!readTorquesFromFile(torque_file_path)) {
     ROS_ERROR_STREAM("CartesianImpedanceExampleController: Failed to read torques from file");
     return false;
   }
-
-  tau_index_ = 0; // Initialize the index to the first set of torques
 
   std::vector<double> cartesian_stiffness_vector;
   std::vector<double> cartesian_damping_vector;
@@ -146,6 +145,10 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
 void CartesianImpedanceExampleController::starting(const ros::Time& /*time*/) {
   // compute initial velocity with jacobian and set x_attractor and q_d_nullspace
   // to initial configuration
+
+  update_counter_ = 0; // Initialize the counter
+
+
   franka::RobotState initial_state = state_handle_->getRobotState();
   // get jacobian
   std::array<double, 42> jacobian_array =
@@ -199,7 +202,6 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
   Eigen::Map<Eigen::Matrix<double, 7, 1>> gravity(gravity_array.data());
 
 
-
   // compute error to desired pose
   // position error
   Eigen::Matrix<double, 6, 1> error;
@@ -218,7 +220,9 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
 
   // compute control
   // allocate variables
-  Eigen::VectorXd tau_task(7), tau_nullspace(7), tau_d(7);
+  // Eigen::VectorXd tau_task(7), tau_nullspace(7), tau_d(7), tau_d_file(7);
+
+  Eigen::VectorXd tau_task(7), tau_nullspace(7), tau_d(7), tau_d_file(7);
 
   // pseudoinverse for nullspace handling
   // kinematic pseuoinverse
@@ -233,26 +237,39 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
                     jacobian.transpose() * jacobian_transpose_pinv) *
                        (nullspace_stiffness_ * (q_d_nullspace_ - q) -
                         (2.0 * sqrt(nullspace_stiffness_)) * dq);
+  
   // Desired torque
   tau_d << tau_task + tau_nullspace + coriolis;
 
-  // // Use the torques from the file instead of the computed ones
-  // if (tau_index_ < tau_d_from_file_.size()) {
-  //   tau_d = tau_d_from_file_[tau_index_];
-  //   tau_index_++;
-  // } else {
-  //   ROS_WARN_THROTTLE(1, "CartesianImpedanceExampleController: Ran out of torques in the file, holding last value.");
-  // }
+  // writeTorquesToFile(tau_d);
 
+  // Use the torques from the file instead of the computed ones
+  if (update_counter_ < tau_d_from_file_.size()) {
+    tau_d_file << tau_d_from_file_[update_counter_];
+    update_counter_++;
+  } else {
+    ROS_WARN_THROTTLE(1, "CartesianImpedanceExampleController: Ran out of torques in the file, holding last value.");
+  }
+
+  // ROS_INFO_STREAM("Difference in torques\n" << tau_d - tau_d_file);
+
+
+  // publishDesiredTorques(tau_d);
 
   // Saturate torque rate to avoid discontinuities
   tau_d << saturateTorqueRate(tau_d, tau_J_d);
+  // tau_d_file << saturateTorqueRate(tau_d_file, tau_J_d);
 
-  publishDesiredTorques(tau_d);
+  // writeTorquesToFile(tau_d);
 
   for (size_t i = 0; i < 7; ++i) {
-    joint_handles_[i].setCommand(tau_d(i));
+    joint_handles_[i].setCommand(tau_d_file(i));
   }
+
+  // tau_d << saturateTorqueRate(tau_d, tau_J_d);
+  // for (size_t i = 0; i < 7; ++i) {
+  //   joint_handles_[i].setCommand(tau_d(i));
+  // }
 
   // update parameters changed online either through dynamic reconfigure or through the interactive
   // target by filtering
@@ -267,8 +284,6 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
   position_d_ = filter_params_ * position_d_target_ + (1.0 - filter_params_) * position_d_;
   orientation_d_ = orientation_d_.slerp(filter_params_, orientation_d_target_);
 
-  // Eigen::Quaterniond rotation(Eigen::AngleAxisd(M_PI_2, Eigen::Vector3d::UnitX())); // 90 degrees
-  // orientation_d_target_ = rotation * orientation_d_target_;
 
   // Added
   // Publish the end effector transformation
@@ -376,7 +391,6 @@ void CartesianImpedanceExampleController::publishCartesianState(const CartesianS
   msg.pose.orientation.w = state.orientation.w();
   pub.publish(msg);
 
-  // ROS_INFO_STREAM("Published cartesian state: " << msg);
 }
 
 void CartesianImpedanceExampleController::publishStiffnessState(const StiffnessState& state, const ros::Publisher& pub) {
@@ -384,7 +398,6 @@ void CartesianImpedanceExampleController::publishStiffnessState(const StiffnessS
   msg.data.insert(msg.data.end(), state.translational_stiffness.data(), state.translational_stiffness.data() + state.translational_stiffness.size());
   msg.data.insert(msg.data.end(), state.rotational_stiffness.data(), state.rotational_stiffness.data() + state.rotational_stiffness.size());
   pub.publish(msg);
-  // ROS_INFO_STREAM("Published stiffness state: " << msg);
 
 }
 
@@ -422,17 +435,6 @@ void CartesianImpedanceExampleController::publishDesiredTorques(const Eigen::Mat
     tau_d_pub_.publish(msg);
 }
 
-// Update control inputs
-// void CartesianImpedanceExampleController::optimizedInputCallback(const std_msgs::Float64MultiArrayConstPtr& msg) {
-//   if (msg->data.size() == 7) {
-//     for (size_t i = 0; i < 7; ++i) {
-//       joint_handles_[i].setCommand(msg->data[i]);
-//     }
-//   } else {
-//     ROS_ERROR("CartesianImpedanceExampleController: Received optimized input of incorrect size");
-//   }
-// }
-
 void CartesianImpedanceExampleController::publishJacobian(const Eigen::Matrix<double, 6, 7>& jacobian) {
     std_msgs::Float64MultiArray msg;
     for (int i = 0; i < jacobian.size(); ++i) {
@@ -449,6 +451,45 @@ void CartesianImpedanceExampleController::publishError(const Eigen::Matrix<doubl
     error_pub_.publish(msg);
 }
 
+// bool CartesianImpedanceExampleController::readTorquesFromFile(const std::string& file_path) {
+//   std::ifstream file(file_path);
+//   if (!file.is_open()) {
+//     ROS_ERROR_STREAM("CartesianImpedanceExampleController: Could not open file " << file_path);
+//     return false;
+//   }
+
+//   std::string line;
+//   int line_number = 0;
+//   while (std::getline(file, line)) {
+//     line_number++;
+//     // Skip header line if it contains non-numeric data
+//     if (line_number == 1 && !isdigit(line[0])) {
+//       continue;
+//     }
+//     std::istringstream ss(line);
+//     std::string token;
+//     Eigen::VectorXd torques(7);
+//     for (int i = 0; i < 7; ++i) {
+//       if (!std::getline(ss, token, ',')) {
+//         ROS_ERROR_STREAM("CartesianImpedanceExampleController: Error reading line " << line_number << ": " << line);
+//         return false;
+//       }
+//       try {
+//         torques[i] = std::stod(token);
+//       } catch (const std::invalid_argument& e) {
+//         ROS_ERROR_STREAM("CartesianImpedanceExampleController: Invalid argument on line " << line_number << ": " << token);
+//         return false;
+//       } catch (const std::out_of_range& e) {
+//         ROS_ERROR_STREAM("CartesianImpedanceExampleController: Out of range error on line " << line_number << ": " << token);
+//         return false;
+//       }
+//     }
+//     tau_d_from_file_.push_back(torques);
+//   }
+//   file.close();
+//   return true;
+// }
+
 bool CartesianImpedanceExampleController::readTorquesFromFile(const std::string& file_path) {
   std::ifstream file(file_path);
   if (!file.is_open()) {
@@ -457,16 +498,30 @@ bool CartesianImpedanceExampleController::readTorquesFromFile(const std::string&
   }
 
   std::string line;
+  int line_number = 0;
   while (std::getline(file, line)) {
+    line_number++;
+    // Skip header line if it contains non-numeric data
+    if (line_number == 1 && !isdigit(line[0])) {
+      continue;
+    }
     std::istringstream ss(line);
     std::string token;
     Eigen::VectorXd torques(7);
     for (int i = 0; i < 7; ++i) {
       if (!std::getline(ss, token, ',')) {
-        ROS_ERROR_STREAM("CartesianImpedanceExampleController: Error reading line " << line);
+        ROS_ERROR_STREAM("CartesianImpedanceExampleController: Error reading line " << line_number << ": " << line);
         return false;
       }
-      torques[i] = std::stod(token);
+      try {
+        torques[i] = std::stod(token);
+      } catch (const std::invalid_argument& e) {
+        ROS_ERROR_STREAM("CartesianImpedanceExampleController: Invalid argument on line " << line_number << ": " << token);
+        return false;
+      } catch (const std::out_of_range& e) {
+        ROS_ERROR_STREAM("CartesianImpedanceExampleController: Out of range error on line " << line_number << ": " << token);
+        return false;
+      }
     }
     tau_d_from_file_.push_back(torques);
   }
@@ -474,38 +529,28 @@ bool CartesianImpedanceExampleController::readTorquesFromFile(const std::string&
   return true;
 }
 
+void CartesianImpedanceExampleController::writeTorquesToFile(const Eigen::Matrix<double, 7, 1>& tau_d) {
 
+  std::string package_path = ros::package::getPath("franka_example_controllers");
 
-// void CartesianImpedanceExampleController::solveQPExample() {
-//   using namespace qpOASES;
+  std::string torque_file_path = package_path + "/results/tau_nominal_original.csv";
 
-//   /* Setup data of first QP. */
-//   real_t H[2 * 2] = {1.0, 0.0, 0.0, 0.5};
-//   real_t g[2] = {1.5, 1.0};
-//   real_t A[1 * 2] = {1.0, 1.0};
-//   real_t lb[2] = {0.5, -2.0};
-//   real_t ub[2] = {5.0, 2.0};
-//   real_t lbA[1] = {-1.0};
-//   real_t ubA[1] = {2.0};
+  static std::ofstream file(torque_file_path);
+  static bool header_written = false;
 
-//   /* Setting up QProblem object. */
-//   QProblem example(2, 1);
+  if (!header_written) {
+    file << "Joint 1,Joint 2,Joint 3,Joint 4,Joint 5,Joint 6,Joint 7\n";
+    header_written = true;
+  }
 
-//   Options options;
-//   example.setOptions(options);
-
-//   /* Solve first QP. */
-//   int_t nWSR = 10;
-//   example.init(H, g, A, lb, ub, lbA, ubA, nWSR);
-
-//   /* Get and print solution of first QP. */
-//   real_t xOpt[2];
-//   real_t yOpt[2 + 1];
-//   example.getPrimalSolution(xOpt);
-//   example.getDualSolution(yOpt);
-
-//   ROS_INFO_STREAM("QP Solution: xOpt[0] = " << xOpt[0] << ", xOpt[1] = " << xOpt[1]);
-// }
+  for (size_t i = 0; i < 7; ++i) {
+    file << tau_d[i];
+    if (i < 6) {
+      file << ",";
+    }
+  }
+  file << "\n";
+}
 
 
 }  // namespace franka_example_controllers

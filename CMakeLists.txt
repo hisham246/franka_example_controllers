@@ -90,6 +90,7 @@ catkin_package(
 )
 
 add_library(franka_example_controllers
+  # src/joint_effort_controller.cpp
   src/traj.cpp
   src/cartesian_variable_impedance_controller.cpp
   src/elbow_example_controller.cpp

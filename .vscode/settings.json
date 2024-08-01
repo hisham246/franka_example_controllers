@@ -15,6 +15,8 @@
         "memory": "cpp",
         "istream": "cpp",
         "functional": "cpp",
-        "tuple": "cpp"
+        "tuple": "cpp",
+        "core": "cpp",
+        "array": "cpp"
     }
 }

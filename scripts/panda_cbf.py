@@ -34,30 +34,47 @@ class PandaDynamicsModel:
     def gravity_callback(self, msg):
         self.gravity_vector = np.array(msg.data)
 
+# class PandaJointStates:
+#     def __init__(self):
+#         self.positions = np.zeros(7)
+#         self.velocities = np.zeros(7)
+
+#         self.joint_states_sub = rospy.Subscriber('franka_state_controller/joint_states', JointState, self.joint_states_callback)
+
+#     def joint_states_callback(self, msg):
+#         self.positions = np.array(msg.position)
+#         self.velocities = np.array(msg.velocity)
+
+# class DesiredTorques:
+#     def __init__(self):
+#         self.tau_d = np.zeros(7)
+#         self.tau_d_lists = [[] for _ in range(7)]  # Create a list of lists for each joint
+#         self.finalized = False  # Flag to indicate if the lists have been finalized
+#         self.tau_d_sub = rospy.Subscriber('cartesian_impedance_example_controller/tau_d', Float64MultiArray, self.tau_d_callback)
+
+#     def tau_d_callback(self, msg):
+#         self.tau_d = np.array(msg.data)
+#         for i in range(7):
+#             self.tau_d_lists[i].append(self.tau_d[i])
+
+
 class PandaJointStates:
     def __init__(self):
         self.positions = np.zeros(7)
         self.velocities = np.zeros(7)
+        self.tau_d = np.zeros(7)
+        self.tau_d_lists = [[] for _ in range(7)]  # Create a list of lists for each joint
 
         self.joint_states_sub = rospy.Subscriber('franka_state_controller/joint_states', JointState, self.joint_states_callback)
 
     def joint_states_callback(self, msg):
         self.positions = np.array(msg.position)
         self.velocities = np.array(msg.velocity)
-
-class DesiredTorques:
-    def __init__(self):
-        self.tau_d = np.zeros(7)
-        self.tau_d_lists = [[] for _ in range(7)]  # Create a list of lists for each joint
-        self.finalized = False  # Flag to indicate if the lists have been finalized
-        self.tau_d_sub = rospy.Subscriber('cartesian_impedance_example_controller/tau_d', Float64MultiArray, self.tau_d_callback)
-
-    def tau_d_callback(self, msg):
-        self.tau_d = np.array(msg.data)
+        self.tau_d = np.array(msg.effort)
         for i in range(7):
             self.tau_d_lists[i].append(self.tau_d[i])
 
-    
+
 class CbfQp:
     def __init__(self, cbf_system):
         self.udim = 7  # Number of control inputs for Panda robot
@@ -125,19 +142,34 @@ def shutdown_callback():
     u_ref_df.to_csv('src/franka_ros/franka_example_controllers/results/tau_nom.csv', index=False)
     u_df.to_csv('src/franka_ros/franka_example_controllers/results/tau_optim.csv', index=False)
 
+    # # Find the length of the shortest list
+    # min_length = min([len(lst) for lst in desired_torques.tau_d_lists])
+
+    # # Trim all lists to the same length
+    # for i in range(7):
+    #     desired_torques.tau_d_lists[i] = desired_torques.tau_d_lists[i][:min_length]
+    #     print(len(desired_torques.tau_d_lists[i]))
+
+    # # Convert lists to DataFrame
+    # tau_d_df = pd.DataFrame({
+    #     f'Joint {i+1}': desired_torques.tau_d_lists[i][:min_length]
+    #     for i in range(7)
+    # })
+
     # Find the length of the shortest list
-    min_length = min([len(lst) for lst in desired_torques.tau_d_lists])
+    min_length = min([len(lst) for lst in panda_joint_states.tau_d_lists])
 
     # Trim all lists to the same length
     for i in range(7):
-        desired_torques.tau_d_lists[i] = desired_torques.tau_d_lists[i][:min_length]
-        print(len(desired_torques.tau_d_lists[i]))
+        panda_joint_states.tau_d_lists[i] = panda_joint_states.tau_d_lists[i][:min_length]
+        print(len(panda_joint_states.tau_d_lists[i]))
 
     # Convert lists to DataFrame
     tau_d_df = pd.DataFrame({
-        f'Joint {i+1}': desired_torques.tau_d_lists[i][:min_length]
+        f'Joint {i+1}': panda_joint_states.tau_d_lists[i][:min_length]
         for i in range(7)
     })
+
 
     # Save DataFrame to CSV file
     tau_d_df.to_csv('src/franka_ros/franka_example_controllers/results/tau_nom_orig.csv', index=False)
@@ -149,7 +181,7 @@ if __name__ == '__main__':
     panda_dynamics_model = PandaDynamicsModel()
     panda_joint_states = PandaJointStates()
 
-    desired_torques = DesiredTorques()
+    # desired_torques = DesiredTorques()
 
     control_input_pub = rospy.Publisher('tau_star', Float64MultiArray, queue_size=10)
 
@@ -179,7 +211,8 @@ if __name__ == '__main__':
         C = panda_dynamics_model.coriolis
         g = panda_dynamics_model.gravity_vector
 
-        u_ref = desired_torques.tau_d
+        # u_ref = desired_torques.tau_d
+        u_ref = panda_joint_states.tau_d
 
         alpha = 5.0
 

@@ -38,8 +38,11 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
 
  private:
   std::vector<Eigen::VectorXd> tau_d_from_file_;
-  size_t tau_index_;
   bool readTorquesFromFile(const std::string& file_path);
+
+  size_t update_counter_ = 0; // Add this line to your class definition
+
+  void writeTorquesToFile(const Eigen::Matrix<double, 7, 1>& tau_d);
 
   // Saturation
   Eigen::Matrix<double, 7, 1> saturateTorqueRate(
@@ -120,7 +123,7 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   void publishJacobian(const Eigen::Matrix<double, 6, 7>& jacobian);
   void publishError(const Eigen::Matrix<double, 6, 1>& error);
 
-
+  bool readTorquesFromFile();
 
   // void solveQPExample();
 
