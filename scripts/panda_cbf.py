@@ -7,6 +7,8 @@ from std_msgs.msg import Float64MultiArray
 from sensor_msgs.msg import JointState
 import sys
 import os
+import csv
+import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
@@ -45,10 +47,14 @@ class PandaJointStates:
 class DesiredTorques:
     def __init__(self):
         self.tau_d = np.zeros(7)
+        self.tau_d_lists = [[] for _ in range(7)]  # Create a list of lists for each jtau_nom_origoint
         self.tau_d_sub = rospy.Subscriber('cartesian_impedance_example_controller/tau_d', Float64MultiArray, self.tau_d_callback)
 
     def tau_d_callback(self, msg):
         self.tau_d = np.array(msg.data)
+        for i in range(7):
+            self.tau_d_lists[i].append(self.tau_d[i])
+
 
 class CbfQp:
     def __init__(self, cbf_system):
@@ -57,10 +63,7 @@ class CbfQp:
         self.cbf_system = cbf_system
 
         self.weight_input = np.eye(self.udim) * 0.3
-        self.weight_slack = 1e-3
         self.H = None
-        self.slack_H = None
-
         self.A = None
         self.b = None
 
@@ -68,9 +71,7 @@ class CbfQp:
 
         self.u_max = np.array([87, 87, 87, 87, 12, 12, 12]) # From the Franka Robotics website
 
-    def cbf_qp(self, u_ref, with_slack=1):
-        inf = np.inf
-        slack = None
+    def cbf_qp(self, u_ref):
         if u_ref is None:
             u_ref = np.zeros(self.udim)
         else:
@@ -83,75 +84,83 @@ class CbfQp:
         lf_h_prime = self.cbf_system.dh_prime_dx() @ self.cbf_system.f_x()
         lg_h_prime = self.cbf_system.dh_prime_dx() @ self.cbf_system.g_x()
 
-        if with_slack:
-            lg_h_prime = np.hstack((lg_h_prime, np.zeros((lg_h_prime.shape[0], 1))))
+        self.A = -lg_h_prime
+        self.b = lf_h_prime + self.cbf_gamma * h_prime
+        self.b = np.atleast_2d(self.b)[0]
 
-            self.A = lg_h_prime
-            self.b = lf_h_prime + self.cbf_gamma * h_prime
+        u = cp.Variable(self.udim)
 
-            self.b = np.atleast_2d(self.b)[0]
+        objective = cp.Minimize((1/2)*cp.quad_form(u, self.H) - (self.H @ u_ref).T @ u)
 
-            u_max = np.hstack((self.u_max, inf * np.ones(1)))
+        constraints = [u <= self.u_max, self.A @ u <= self.b]
+        problem = cp.Problem(objective, constraints)
+    
+        problem.solve(max_iter=100)
 
-            u = cp.Variable(self.udim + 1)
-
-            self.slack_H = np.hstack((self.H, np.zeros((self.H.shape[0], 1))))
-            self.slack_H = np.vstack((self.slack_H, np.hstack((np.zeros((1, self.H.shape[0])), self.weight_slack * np.ones((1, 1))))))
-
-            u_ref = np.hstack((u_ref, np.zeros(1)))
-            objective = cp.Minimize((1/2) * cp.quad_form(u, self.slack_H) - (self.slack_H @ u_ref).T @ u)
-
-            constraints = [u <= u_max, self.A @ u <= self.b]
-
-            problem = cp.Problem(objective, constraints)
-
-            problem.solve()
-
-            if problem.status != 'infeasible':
-                slack = u.value[-1]
-                u = u.value[:self.udim]
-                feas = 1
-            else:
-                u = None
-                slack = None
-                feas = -1
-
+        if problem.status != 'infeasible':
+            u = u.value
+            feas = 1
         else:
-            self.A = -lg_h_prime
-            self.b = lf_h_prime + self.cbf_gamma * h_prime
-            self.b = np.atleast_2d(self.b)[0]
+            u = None
+            feas = -1
 
-            u = cp.Variable(self.udim)
+        return u, h_prime, feas
+    
+def shutdown_callback():
+    rospy.loginfo("Shutting down and saving data to CSV files...")
 
-            objective = cp.Minimize((1/2)*cp.quad_form(u, self.H) - (self.H @ u_ref).T @ u)
+    u_ref_df = pd.DataFrame(u_ref_list, columns=[f'Joint {i+1}' for i in range(7)])
+    u_df = pd.DataFrame(u_list, columns=[f'Joint {i+1}' for i in range(7)])
+    h_df = pd.DataFrame(h_list, columns=['CBF Value'])
+    solve_time_df = pd.DataFrame(solve_time_list, columns=['Solve Time'])
 
-            constraints = [u <= self.u_max, self.A @ u <= self.b]
+    u_ref_df = pd.concat([solve_time_df, u_ref_df], axis=1)
+    u_df = pd.concat([solve_time_df, u_df], axis=1)
+    h_df = pd.concat([solve_time_df, h_df], axis=1)
 
-            problem = cp.Problem(objective, constraints)
+    u_ref_df.to_csv('src/franka_ros/franka_example_controllers/results/tau_nom.csv', index=False)
+    u_df.to_csv('src/franka_ros/franka_example_controllers/results/tau_optim.csv', index=False)
+    h_df.to_csv('src/franka_ros/franka_example_controllers/results/cbf_value.csv', index=False)   
 
-            problem.solve()
+    min_length = min([len(lst) for lst in desired_torques.tau_d_lists])
 
-            if problem.status != 'infeasible':
-                u = u.value
-                feas = 1
-            else:
-                u = None
-                feas = -1
+    for i in range(7):
+        desired_torques.tau_d_lists[i] = desired_torques.tau_d_lists[i][:min_length]
+        print(len(desired_torques.tau_d_lists[i]))
 
-        return u, slack, h_prime, feas
+    tau_d_df = pd.DataFrame({
+        f'Joint {i+1}': desired_torques.tau_d_lists[i][:min_length]
+        for i in range(7)
+    })
+
+    tau_d_df.to_csv('src/franka_ros/franka_example_controllers/results/tau_nom_orig.csv', index=False)
 
 if __name__ == '__main__':
     rospy.init_node('panda_cbf_qp', anonymous=True)
 
     panda_dynamics_model = PandaDynamicsModel()
     panda_joint_states = PandaJointStates()
-
     desired_torques = DesiredTorques()
 
-    # Publisher for the control input u
     control_input_pub = rospy.Publisher('tau_star', Float64MultiArray, queue_size=10)
 
+    u_ref_list = []
+    u_list = []
+    h_list = []
+    solve_time_list = []
+
+    def save_to_csv(filename, data):
+        with open(filename, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            for row in data:
+                writer.writerow(row)
+
     rate = rospy.Rate(1000)
+    
+    rospy.on_shutdown(shutdown_callback)
+
+    cumulative_solve_time = 0.0
+
     while not rospy.is_shutdown():
 
         q = panda_joint_states.positions
@@ -167,18 +176,25 @@ if __name__ == '__main__':
         cbf_system = CBF(q, dq, D, C, g, alpha)
         qp_solver = CbfQp(cbf_system)
 
-        u, slack, h, feas = qp_solver.cbf_qp(u_ref)
+        start_time = rospy.Time.now()
+        u, h, feas = qp_solver.cbf_qp(u_ref)
+        solve_time = rospy.Time.now() - start_time
+        cumulative_solve_time += solve_time.to_sec()
 
-        # rospy.loginfo("Nominal Control Input: %s", u_ref)
-        # rospy.loginfo("Optimal Control Input: %s", u)
-        # rospy.loginfo("CBF Value: %s", h)
+        rospy.loginfo("Nominal Control Input: %s", u_ref)
+        rospy.loginfo("Optimal Control Input: %s", u)
+        rospy.loginfo("CBF Value: %s", h)
+        rospy.loginfo("Solve Time: %s seconds", solve_time.to_sec())
 
-        # Create a message for the control input
+        if u is not None:
+            u_ref_list.append(u_ref.tolist())
+            u_list.append(u.tolist())
+            h_list.append(h)
+            solve_time_list.append(cumulative_solve_time)
+
         control_input_msg = Float64MultiArray()
         control_input_msg.data = u
 
-        # Publish the control input
         control_input_pub.publish(control_input_msg)
-
 
         rate.sleep()

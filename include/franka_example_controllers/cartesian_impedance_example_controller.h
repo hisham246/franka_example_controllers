@@ -7,6 +7,9 @@
 #include <string>
 #include <vector>
 
+#include <fstream>
+#include <sstream>
+
 #include <controller_interface/multi_interface_controller.h>
 #include <dynamic_reconfigure/server.h>
 #include <geometry_msgs/PoseStamped.h>
@@ -68,11 +71,8 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   ros::Subscriber sub_equilibrium_pose_;
   void equilibriumPoseCallback(const geometry_msgs::PoseStampedConstPtr& msg);
 
-  // Optimized input subscriber
-  // ros::Subscriber sub_optimized_input_;
-  // void optimizedInputCallback(const std_msgs::Float64MultiArrayConstPtr& msg);
+  std::vector<Eigen::VectorXd> desired_torques_;
 
-// Added
   ros::Publisher transform_pub_; // End-effector transformation matrix
 
   ros::Publisher desired_cartesian_state_pub_;
@@ -88,9 +88,6 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   // Publish the desired control input 
   ros::Publisher tau_d_pub_;
 
-  ros::Publisher jacobian_pub_;
-  ros::Publisher error_pub_;
-
   struct CartesianState {
     Eigen::Vector3d position;
     Eigen::Quaterniond orientation;
@@ -104,11 +101,7 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   void publishInertia(const Eigen::Matrix<double, 7, 7>& inertia_matrix);
   void publishCoriolis(const Eigen::Matrix<double, 7, 1>& coriolis);
   void publishGravity(const Eigen::Matrix<double, 7, 1>& gravity);
-
   void publishDesiredTorques(const Eigen::Matrix<double, 7, 1>& tau_d);
-
-  void publishJacobian(const Eigen::Matrix<double, 6, 7>& jacobian);
-  void publishError(const Eigen::Matrix<double, 6, 1>& error);
 };
 
 }  // namespace franka_example_controllers
